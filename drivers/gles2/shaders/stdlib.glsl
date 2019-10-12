@@ -36,7 +36,7 @@ highp vec4 texel2DFetch(highp sampler2D tex, ivec2 size, ivec2 coord) {
 	return texture2DLod(tex, vec2(x_coord, y_coord), 0.0);
 }
 
-#ifdef SINH_USED
+#if defined(SINH_USED)
 
 highp float sinh(highp float x) {
 	return 0.5 * (exp(x) - exp(-x));
@@ -56,7 +56,7 @@ highp vec4 sinh(highp vec4 x) {
 
 #endif
 
-#ifdef COSH_USED
+#if defined(COSH_USED)
 
 highp float cosh(highp float x) {
 	return 0.5 * (exp(x) + exp(-x));
@@ -76,7 +76,7 @@ highp vec4 cosh(highp vec4 x) {
 
 #endif
 
-#ifdef TANH_USED
+#if defined(TANH_USED)
 
 highp float tanh(highp float x) {
 	highp float exp2x = exp(2.0 * x);
@@ -106,7 +106,7 @@ highp vec4 tanh(highp vec4 x) {
 
 #endif
 
-#ifdef ASINH_USED
+#if defined(ASINH_USED)
 
 highp float asinh(highp float x) {
 	return sign(x) * log(abs(x) + sqrt(1.0 + x * x));
@@ -126,7 +126,7 @@ highp vec4 asinh(highp vec4 x) {
 
 #endif
 
-#ifdef ACOSH_USED
+#if defined(ACOSH_USED)
 
 highp float acosh(highp float x) {
 	return log(x + sqrt(x * x - 1.0));
@@ -146,7 +146,7 @@ highp vec4 acosh(highp vec4 x) {
 
 #endif
 
-#ifdef ATANH_USED
+#if defined(ATANH_USED)
 
 highp float atanh(highp float x) {
 	return 0.5 * log((1.0 + x) / (1.0 - x));
@@ -166,7 +166,7 @@ highp vec4 atanh(highp vec4 x) {
 
 #endif
 
-#ifdef ROUND_USED
+#if defined(ROUND_USED)
 
 highp float round(highp float x) {
 	return floor(x + 0.5);
@@ -186,7 +186,7 @@ highp vec4 round(highp vec4 x) {
 
 #endif
 
-#ifdef ROUND_EVEN_USED
+#if defined(ROUND_EVEN_USED)
 
 highp float roundEven(highp float x) {
 	highp float t = x + 0.5;
@@ -216,7 +216,7 @@ highp vec4 roundEven(highp vec4 x) {
 
 #endif
 
-#ifdef IS_INF_USED
+#if defined(IS_INF_USED)
 
 bool isinf(highp float x) {
 	return (2 * x == x) && (x != 0);
@@ -236,7 +236,7 @@ bvec4 isinf(highp vec4 x) {
 
 #endif
 
-#ifdef IS_NAN_USED
+#if defined(IS_NAN_USED)
 
 bool isnan(highp float x) {
 	return x != x;
@@ -256,7 +256,7 @@ bvec4 isnan(highp vec4 x) {
 
 #endif
 
-#ifdef TRUNC_USED
+#if defined(TRUNC_USED)
 
 highp float trunc(highp float x) {
 	return x < 0 ? -floor(-x) : floor(x);
@@ -276,7 +276,7 @@ highp vec4 trunc(highp vec4 x) {
 
 #endif
 
-#ifdef DETERMINANT_USED
+#if defined(DETERMINANT_USED)
 
 highp float determinant(highp mat2 m) {
 	return m[0].x * m[1].y - m[1].x * m[0].y;
@@ -299,9 +299,84 @@ highp float determinant(highp mat4 m) {
 
 #endif
 
+#if defined(INVERSE_USED)
+
+highp mat2 inverse(highp mat2 m) {
+	highp float d = 1.0 / (m[0].x * m[1].y - m[1].x * m[0].y);
+	return mat2(
+			vec2(m[1].y * d, -m[0].y * d),
+			vec2(-m[1].x * d, m[0].x * d));
+}
+
+highp mat3 inverse(highp mat3 m) {
+	highp float d = 1.0 / (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z) - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z) + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z));
+	return mat3(
+			vec3((m[1].y * m[2].z - m[2].y * m[1].z), -(m[1].x * m[2].z - m[2].x * m[1].z), (m[1].x * m[2].y - m[2].x * m[1].y)) * d,
+			vec3(-(m[0].y * m[2].z - m[2].y * m[0].z), (m[0].x * m[2].z - m[2].x * m[0].z), -(m[0].x * m[2].y - m[2].x * m[0].y)) * d,
+			vec3((m[0].y * m[1].z - m[1].y * m[0].z), -(m[0].x * m[1].z - m[1].x * m[0].z), (m[0].x * m[1].y - m[1].x * m[0].y)) * d);
+}
+
+highp mat4 inverse(highp mat4 m) {
+	highp float c00 = m[2].z * m[3].w - m[3].z * m[2].w;
+	highp float c02 = m[1].z * m[3].w - m[3].z * m[1].w;
+	highp float c03 = m[1].z * m[2].w - m[2].z * m[1].w;
+
+	highp float c04 = m[2].y * m[3].w - m[3].y * m[2].w;
+	highp float c06 = m[1].y * m[3].w - m[3].y * m[1].w;
+	highp float c07 = m[1].y * m[2].w - m[2].y * m[1].w;
+
+	highp float c08 = m[2].y * m[3].z - m[3].y * m[2].z;
+	highp float c10 = m[1].y * m[3].z - m[3].y * m[1].z;
+	highp float c11 = m[1].y * m[2].z - m[2].y * m[1].z;
+
+	highp float c12 = m[2].x * m[3].w - m[3].x * m[2].w;
+	highp float c14 = m[1].x * m[3].w - m[3].x * m[1].w;
+	highp float c15 = m[1].x * m[2].w - m[2].x * m[1].w;
+
+	highp float c16 = m[2].x * m[3].z - m[3].x * m[2].z;
+	highp float c18 = m[1].x * m[3].z - m[3].x * m[1].z;
+	highp float c19 = m[1].x * m[2].z - m[2].x * m[1].z;
+
+	highp float c20 = m[2].x * m[3].y - m[3].x * m[2].y;
+	highp float c22 = m[1].x * m[3].y - m[3].x * m[1].y;
+	highp float c23 = m[1].x * m[2].y - m[2].x * m[1].y;
+
+	vec4 f0 = vec4(c00, c00, c02, c03);
+	vec4 f1 = vec4(c04, c04, c06, c07);
+	vec4 f2 = vec4(c08, c08, c10, c11);
+	vec4 f3 = vec4(c12, c12, c14, c15);
+	vec4 f4 = vec4(c16, c16, c18, c19);
+	vec4 f5 = vec4(c20, c20, c22, c23);
+
+	vec4 v0 = vec4(m[1].x, m[0].x, m[0].x, m[0].x);
+	vec4 v1 = vec4(m[1].y, m[0].y, m[0].y, m[0].y);
+	vec4 v2 = vec4(m[1].z, m[0].z, m[0].z, m[0].z);
+	vec4 v3 = vec4(m[1].w, m[0].w, m[0].w, m[0].w);
+
+	vec4 inv0 = vec4(v1 * f0 - v2 * f1 + v3 * f2);
+	vec4 inv1 = vec4(v0 * f0 - v2 * f3 + v3 * f4);
+	vec4 inv2 = vec4(v0 * f1 - v1 * f3 + v3 * f5);
+	vec4 inv3 = vec4(v0 * f2 - v1 * f4 + v2 * f5);
+
+	vec4 sa = vec4(+1, -1, +1, -1);
+	vec4 sb = vec4(-1, +1, -1, +1);
+
+	mat4 inv = mat4(inv0 * sa, inv1 * sb, inv2 * sa, inv3 * sb);
+
+	vec4 r0 = vec4(inv[0].x, inv[1].x, inv[2].x, inv[3].x);
+	vec4 d0 = vec4(m[0] * r0);
+
+	highp float d1 = (d0.x + d0.y) + (d0.z + d0.w);
+	highp float d = 1.0 / d1;
+
+	return inv * d;
+}
+
+#endif
+
 #ifndef USE_GLES_OVER_GL
 
-#ifdef TRANSPOSE_USED
+#if defined(TRANSPOSE_USED)
 
 highp mat2 transpose(highp mat2 m) {
 	return mat2(
@@ -326,7 +401,7 @@ highp mat4 transpose(highp mat4 m) {
 			vec4(m[0].w, m[1].w, m[2].w, m[3].w));
 }
 
-#ifdef OUTER_PRODUCT_USED
+#if defined(OUTER_PRODUCT_USED)
 
 highp mat2 outerProduct(highp vec2 c, highp vec2 r) {
 	return mat2(c * r.x, c * r.y);

@@ -29,8 +29,8 @@
 /*************************************************************************/
 
 #include "core/io/zip_io.h"
+#include "editor/editor_export.h"
 #include "editor/editor_node.h"
-#include "editor_export.h"
 #include "main/splash.gen.h"
 #include "platform/javascript/logo.gen.h"
 #include "platform/javascript/run_icon.gen.h"
@@ -362,12 +362,21 @@ int EditorExportPlatformJavaScript::get_device_count() const {
 
 Error EditorExportPlatformJavaScript::run(const Ref<EditorExportPreset> &p_preset, int p_device, int p_debug_flags) {
 
-	String path = EditorSettings::get_singleton()->get_cache_dir().plus_file("tmp_export.html");
+	String basepath = EditorSettings::get_singleton()->get_cache_dir().plus_file("tmp_js_export");
+	String path = basepath + ".html";
 	Error err = export_project(p_preset, true, path, p_debug_flags);
-	if (err) {
+	if (err != OK) {
+		// Export generates several files, clean them up on failure.
+		DirAccess::remove_file_or_error(basepath + ".html");
+		DirAccess::remove_file_or_error(basepath + ".js");
+		DirAccess::remove_file_or_error(basepath + ".pck");
+		DirAccess::remove_file_or_error(basepath + ".png");
+		DirAccess::remove_file_or_error(basepath + ".wasm");
 		return err;
 	}
 	OS::get_singleton()->shell_open(String("file://") + path);
+	// FIXME: Find out how to clean up export files after running the successfully
+	// exported game. Might not be trivial.
 	return OK;
 }
 

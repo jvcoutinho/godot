@@ -374,10 +374,6 @@ Collection of single-file libraries used in Godot components.
   * Upstream: https://wiki.blender.org/index.php/Dev:Shading/Tangent_Space_Normal_Maps
   * Version: 1.0
   * License: zlib
-- `stb_truetype.h`
-  * Upstream: https://github.com/nothings/stb
-  * Version: 1.21
-  * License: Public Domain (Unlicense) or MIT
 - `stb_vorbis.c`
   * Upstream: https://github.com/nothings/stb
   * Version: 1.16
@@ -513,7 +509,7 @@ File extracted from upstream release tarball:
 ## xatlas
 
 - Upstream: https://github.com/jpcy/xatlas
-- Version: git (f65a664, 2019)
+- Version: git (b4b5426, 2019)
 - License: MIT
 
 Files extracted from upstream source:

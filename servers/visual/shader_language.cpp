@@ -283,6 +283,7 @@ const ShaderLanguage::KeyWord ShaderLanguage::keyword_list[] = {
 	{ TK_CF_DO, "do" },
 	{ TK_CF_SWITCH, "switch" },
 	{ TK_CF_CASE, "case" },
+	{ TK_CF_DEFAULT, "default" },
 	{ TK_CF_BREAK, "break" },
 	{ TK_CF_CONTINUE, "continue" },
 	{ TK_CF_RETURN, "return" },
@@ -860,7 +861,7 @@ void ShaderLanguage::clear() {
 	}
 }
 
-bool ShaderLanguage::_find_identifier(const BlockNode *p_block, const Map<StringName, BuiltInInfo> &p_builtin_types, const StringName &p_identifier, DataType *r_data_type, IdentifierType *r_type, int *r_array_size) {
+bool ShaderLanguage::_find_identifier(const BlockNode *p_block, const Map<StringName, BuiltInInfo> &p_builtin_types, const StringName &p_identifier, DataType *r_data_type, IdentifierType *r_type, bool *r_is_const, int *r_array_size) {
 
 	if (p_builtin_types.has(p_identifier)) {
 
@@ -881,6 +882,9 @@ bool ShaderLanguage::_find_identifier(const BlockNode *p_block, const Map<String
 		if (p_block->variables.has(p_identifier)) {
 			if (r_data_type) {
 				*r_data_type = p_block->variables[p_identifier].type;
+			}
+			if (r_is_const) {
+				*r_is_const = p_block->variables[p_identifier].is_const;
 			}
 			if (r_array_size) {
 				*r_array_size = p_block->variables[p_identifier].array_size;
@@ -920,6 +924,9 @@ bool ShaderLanguage::_find_identifier(const BlockNode *p_block, const Map<String
 		if (r_data_type) {
 			*r_data_type = shader->varyings[p_identifier].type;
 		}
+		if (r_array_size) {
+			*r_array_size = shader->varyings[p_identifier].array_size;
+		}
 		if (r_type) {
 			*r_type = IDENTIFIER_VARYING;
 		}
@@ -958,6 +965,7 @@ bool ShaderLanguage::_find_identifier(const BlockNode *p_block, const Map<String
 			if (r_type) {
 				*r_type = IDENTIFIER_FUNCTION;
 			}
+			return true;
 		}
 	}
 
@@ -2735,7 +2743,7 @@ bool ShaderLanguage::_validate_assign(Node *p_node, const Map<StringName, BuiltI
 			return false;
 		}
 
-		if (shader->constants.has(var->name)) {
+		if (shader->constants.has(var->name) || var->is_const) {
 			if (r_message)
 				*r_message = RTR("Constants cannot be modified.");
 			return false;
@@ -2745,6 +2753,21 @@ bool ShaderLanguage::_validate_assign(Node *p_node, const Map<StringName, BuiltI
 			return true;
 		}
 	} else if (p_node->type == Node::TYPE_ARRAY) {
+
+		ArrayNode *arr = static_cast<ArrayNode *>(p_node);
+
+		if (arr->is_const) {
+			if (r_message)
+				*r_message = RTR("Constants cannot be modified.");
+			return false;
+		}
+
+		if (shader->varyings.has(arr->name) && current_function != String("vertex")) {
+			if (r_message)
+				*r_message = RTR("Varyings can only be assigned in vertex function.");
+			return false;
+		}
+
 		return true;
 	}
 
@@ -2891,6 +2914,16 @@ ShaderLanguage::Node *ShaderLanguage::_parse_expression(BlockNode *p_block, cons
 
 				bool ok = _parse_function_arguments(p_block, p_builtin_types, func, &carg);
 
+				// Check if block has a variable with the same name as function to prevent shader crash.
+				ShaderLanguage::BlockNode *bnode = p_block;
+				while (bnode) {
+					if (bnode->variables.has(name)) {
+						_set_error("Expected function name");
+						return NULL;
+					}
+					bnode = bnode->parent_block;
+				}
+
 				//test if function was parsed first
 				for (int i = 0; i < shader->functions.size(); i++) {
 					if (shader->functions[i].name == name) {
@@ -2931,9 +2964,10 @@ ShaderLanguage::Node *ShaderLanguage::_parse_expression(BlockNode *p_block, cons
 
 				DataType data_type;
 				IdentifierType ident_type;
+				bool is_const = false;
 				int array_size = 0;
 
-				if (!_find_identifier(p_block, p_builtin_types, identifier, &data_type, &ident_type, &array_size)) {
+				if (!_find_identifier(p_block, p_builtin_types, identifier, &data_type, &ident_type, &is_const, &array_size)) {
 					_set_error("Unknown identifier in expression: " + String(identifier));
 					return NULL;
 				}
@@ -2996,6 +3030,7 @@ ShaderLanguage::Node *ShaderLanguage::_parse_expression(BlockNode *p_block, cons
 					arrname->datatype_cache = data_type;
 					arrname->index_expression = index_expression;
 					arrname->call_expression = call_expression;
+					arrname->is_const = is_const;
 					expr = arrname;
 
 				} else {
@@ -3003,6 +3038,7 @@ ShaderLanguage::Node *ShaderLanguage::_parse_expression(BlockNode *p_block, cons
 					VariableNode *varname = alloc_node<VariableNode>();
 					varname->name = identifier;
 					varname->datatype_cache = data_type;
+					varname->is_const = is_const;
 					expr = varname;
 				}
 			}
@@ -3762,6 +3798,14 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 		TkPos pos = _get_tkpos();
 
 		Token tk = _get_token();
+
+		if (p_block && p_block->block_type == BlockNode::BLOCK_TYPE_SWITCH) {
+			if (tk.type != TK_CF_CASE && tk.type != TK_CF_DEFAULT && tk.type != TK_CURLY_BRACKET_CLOSE) {
+				_set_error("Switch may contains only case and default blocks");
+				return ERR_PARSE_ERROR;
+			}
+		}
+
 		if (tk.type == TK_CURLY_BRACKET_CLOSE) { //end of block
 			if (p_just_one) {
 				_set_error("Unexpected '}'");
@@ -3770,7 +3814,15 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 
 			return OK;
 
-		} else if (is_token_precision(tk.type) || is_token_nonvoid_datatype(tk.type)) {
+		} else if (tk.type == TK_CONST || is_token_precision(tk.type) || is_token_nonvoid_datatype(tk.type)) {
+
+			bool is_const = false;
+
+			if (tk.type == TK_CONST) {
+				is_const = true;
+				tk = _get_token();
+			}
+
 			DataPrecision precision = PRECISION_DEFAULT;
 			if (is_token_precision(tk.type)) {
 				precision = get_token_precision(tk.type);
@@ -3800,9 +3852,12 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 				}
 
 				StringName name = tk.text;
-				if (_find_identifier(p_block, p_builtin_types, name)) {
-					_set_error("Redefinition of '" + String(name) + "'");
-					return ERR_PARSE_ERROR;
+				ShaderLanguage::IdentifierType itype;
+				if (_find_identifier(p_block, p_builtin_types, name, (ShaderLanguage::DataType *)0, &itype)) {
+					if (itype != IDENTIFIER_FUNCTION) {
+						_set_error("Redefinition of '" + String(name) + "'");
+						return ERR_PARSE_ERROR;
+					}
 				}
 
 				BlockNode::Variable var;
@@ -3810,6 +3865,7 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 				var.precision = precision;
 				var.line = tk_line;
 				var.array_size = 0;
+				var.is_const = is_const;
 
 				tk = _get_token();
 
@@ -3819,6 +3875,7 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 					ArrayDeclarationNode *node = alloc_node<ArrayDeclarationNode>();
 					node->datatype = type;
 					node->precision = precision;
+					node->is_const = is_const;
 					vardecl = (Node *)node;
 
 					ArrayDeclarationNode::Declaration decl;
@@ -3836,14 +3893,13 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 							return ERR_PARSE_ERROR;
 						}
 
+						decl.size = ((uint32_t)tk.constant);
 						tk = _get_token();
 
 						if (tk.type != TK_BRACKET_CLOSE) {
 							_set_error("Expected ']'");
 							return ERR_PARSE_ERROR;
 						}
-
-						decl.size = ((uint32_t)tk.constant);
 						var.array_size = decl.size;
 					}
 
@@ -3959,6 +4015,11 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 									return ERR_PARSE_ERROR;
 								}
 
+								if (node->is_const && n->type == Node::TYPE_OPERATOR && ((OperatorNode *)n)->op == OP_CALL) {
+									_set_error("Expected constant expression");
+									return ERR_PARSE_ERROR;
+								}
+
 								if (var.type != n->get_datatype()) {
 									_set_error("Invalid assignment of '" + get_datatype_name(n->get_datatype()) + "' to '" + get_datatype_name(var.type) + "'");
 									return ERR_PARSE_ERROR;
@@ -3996,6 +4057,10 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 							_set_error("Expected array initialization");
 							return ERR_PARSE_ERROR;
 						}
+						if (is_const) {
+							_set_error("Expected initialization of constant");
+							return ERR_PARSE_ERROR;
+						}
 					}
 
 					node->declarations.push_back(decl);
@@ -4004,6 +4069,7 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 					VariableDeclarationNode *node = alloc_node<VariableDeclarationNode>();
 					node->datatype = type;
 					node->precision = precision;
+					node->is_const = is_const;
 					vardecl = (Node *)node;
 
 					VariableDeclarationNode::Declaration decl;
@@ -4014,7 +4080,10 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 					Node *n = _parse_and_reduce_expression(p_block, p_builtin_types);
 					if (!n)
 						return ERR_PARSE_ERROR;
-
+					if (node->is_const && n->type == Node::TYPE_OPERATOR && ((OperatorNode *)n)->op == OP_CALL) {
+						_set_error("Expected constant expression after '='");
+						return ERR_PARSE_ERROR;
+					}
 					decl.initializer = n;
 
 					if (var.type != n->get_datatype()) {
@@ -4024,6 +4093,11 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 					tk = _get_token();
 					node->declarations.push_back(decl);
 				} else {
+					if (is_const) {
+						_set_error("Expected initialization of constant");
+						return ERR_PARSE_ERROR;
+					}
+
 					VariableDeclarationNode *node = alloc_node<VariableDeclarationNode>();
 					node->datatype = type;
 					node->precision = precision;
@@ -4097,16 +4171,217 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 			} else {
 				_set_tkpos(pos); //rollback
 			}
-		} else if (tk.type == TK_CF_WHILE) {
-			//if () {}
+		} else if (tk.type == TK_CF_SWITCH) {
+			// switch() {}
 			tk = _get_token();
+			if (tk.type != TK_PARENTHESIS_OPEN) {
+				_set_error("Expected '(' after switch");
+				return ERR_PARSE_ERROR;
+			}
+			ControlFlowNode *cf = alloc_node<ControlFlowNode>();
+			cf->flow_op = FLOW_OP_SWITCH;
+			Node *n = _parse_and_reduce_expression(p_block, p_builtin_types);
+			if (!n)
+				return ERR_PARSE_ERROR;
+			if (n->get_datatype() != TYPE_INT) {
+				_set_error("Expected integer expression");
+				return ERR_PARSE_ERROR;
+			}
+			tk = _get_token();
+			if (tk.type != TK_PARENTHESIS_CLOSE) {
+				_set_error("Expected ')' after expression");
+				return ERR_PARSE_ERROR;
+			}
+			tk = _get_token();
+			if (tk.type != TK_CURLY_BRACKET_OPEN) {
+				_set_error("Expected '{' after switch statement");
+				return ERR_PARSE_ERROR;
+			}
+			BlockNode *switch_block = alloc_node<BlockNode>();
+			switch_block->block_type = BlockNode::BLOCK_TYPE_SWITCH;
+			switch_block->parent_block = p_block;
+			cf->expressions.push_back(n);
+			cf->blocks.push_back(switch_block);
+			p_block->statements.push_back(cf);
+
+			int prev_type = TK_CF_CASE;
+			while (true) { // Go-through multiple cases.
+
+				if (_parse_block(switch_block, p_builtin_types, true, true, false) != OK) {
+					return ERR_PARSE_ERROR;
+				}
+				pos = _get_tkpos();
+				tk = _get_token();
+				if (tk.type == TK_CF_CASE || tk.type == TK_CF_DEFAULT) {
+					if (prev_type == TK_CF_DEFAULT) {
+						if (tk.type == TK_CF_CASE) {
+							_set_error("Cases must be defined before default case.");
+							return ERR_PARSE_ERROR;
+						} else if (prev_type == TK_CF_DEFAULT) {
+							_set_error("Default case must be defined only once.");
+							return ERR_PARSE_ERROR;
+						}
+					}
+					prev_type = tk.type;
+					_set_tkpos(pos);
+					continue;
+				} else {
+					Set<int> constants;
+					for (int i = 0; i < switch_block->statements.size(); i++) { // Checks for duplicates.
+						ControlFlowNode *flow = (ControlFlowNode *)switch_block->statements[i];
+						if (flow) {
+							if (flow->flow_op == FLOW_OP_CASE) {
+								ConstantNode *n2 = static_cast<ConstantNode *>(flow->expressions[0]);
+								if (!n2) {
+									return ERR_PARSE_ERROR;
+								}
+								if (n2->values.empty()) {
+									return ERR_PARSE_ERROR;
+								}
+								if (constants.has(n2->values[0].sint)) {
+									_set_error("Duplicated case label: '" + itos(n2->values[0].sint) + "'");
+									return ERR_PARSE_ERROR;
+								}
+								constants.insert(n2->values[0].sint);
+							} else if (flow->flow_op == FLOW_OP_DEFAULT) {
+								continue;
+							} else {
+								return ERR_PARSE_ERROR;
+							}
+						} else {
+							return ERR_PARSE_ERROR;
+						}
+					}
+					break;
+				}
+			}
+
+		} else if (tk.type == TK_CF_CASE) {
+			// case x : break; | return;
+
+			if (p_block && p_block->block_type == BlockNode::BLOCK_TYPE_CASE) {
+				_set_tkpos(pos);
+				return OK;
+			}
+
+			if (!p_block || (p_block->block_type != BlockNode::BLOCK_TYPE_SWITCH)) {
+				_set_error("case must be placed within switch block");
+				return ERR_PARSE_ERROR;
+			}
+
+			tk = _get_token();
+
+			int sign = 1;
+
+			if (tk.type == TK_OP_SUB) {
+				sign = -1;
+				tk = _get_token();
+			}
+
+			if (tk.type != TK_INT_CONSTANT) {
+				_set_error("Expected integer constant");
+				return ERR_PARSE_ERROR;
+			}
+
+			int constant = (int)tk.constant * sign;
+
+			tk = _get_token();
+
+			if (tk.type != TK_COLON) {
+				_set_error("Expected ':'");
+				return ERR_PARSE_ERROR;
+			}
+
+			ControlFlowNode *cf = alloc_node<ControlFlowNode>();
+			cf->flow_op = FLOW_OP_CASE;
+
+			ConstantNode *n = alloc_node<ConstantNode>();
+			ConstantNode::Value v;
+			v.sint = constant;
+			n->values.push_back(v);
+			n->datatype = TYPE_INT;
+
+			BlockNode *case_block = alloc_node<BlockNode>();
+			case_block->block_type = BlockNode::BLOCK_TYPE_CASE;
+			case_block->parent_block = p_block;
+			cf->expressions.push_back(n);
+			cf->blocks.push_back(case_block);
+			p_block->statements.push_back(cf);
+
+			Error err = _parse_block(case_block, p_builtin_types, false, true, false);
+			if (err)
+				return err;
+
+			return OK;
+
+		} else if (tk.type == TK_CF_DEFAULT) {
+
+			if (p_block && p_block->block_type == BlockNode::BLOCK_TYPE_CASE) {
+				_set_tkpos(pos);
+				return OK;
+			}
+
+			if (!p_block || (p_block->block_type != BlockNode::BLOCK_TYPE_SWITCH)) {
+				_set_error("default must be placed within switch block");
+				return ERR_PARSE_ERROR;
+			}
+
+			tk = _get_token();
+
+			if (tk.type != TK_COLON) {
+				_set_error("Expected ':'");
+				return ERR_PARSE_ERROR;
+			}
+
+			ControlFlowNode *cf = alloc_node<ControlFlowNode>();
+			cf->flow_op = FLOW_OP_DEFAULT;
+
+			BlockNode *default_block = alloc_node<BlockNode>();
+			default_block->block_type = BlockNode::BLOCK_TYPE_DEFAULT;
+			default_block->parent_block = p_block;
+			cf->blocks.push_back(default_block);
+			p_block->statements.push_back(cf);
+
+			Error err = _parse_block(default_block, p_builtin_types, false, true, false);
+			if (err)
+				return err;
+
+			return OK;
+
+		} else if (tk.type == TK_CF_DO || tk.type == TK_CF_WHILE) {
+			// do {} while()
+			// while() {}
+			bool is_do = tk.type == TK_CF_DO;
+
+			BlockNode *do_block = NULL;
+			if (is_do) {
+
+				do_block = alloc_node<BlockNode>();
+				do_block->parent_block = p_block;
+
+				Error err = _parse_block(do_block, p_builtin_types, true, true, true);
+				if (err)
+					return err;
+
+				tk = _get_token();
+				if (tk.type != TK_CF_WHILE) {
+					_set_error("Expected while after do");
+					return ERR_PARSE_ERROR;
+				}
+			}
+			tk = _get_token();
+
 			if (tk.type != TK_PARENTHESIS_OPEN) {
 				_set_error("Expected '(' after while");
 				return ERR_PARSE_ERROR;
 			}
 
 			ControlFlowNode *cf = alloc_node<ControlFlowNode>();
-			cf->flow_op = FLOW_OP_WHILE;
+			if (is_do) {
+				cf->flow_op = FLOW_OP_DO;
+			} else {
+				cf->flow_op = FLOW_OP_WHILE;
+			}
 			Node *n = _parse_and_reduce_expression(p_block, p_builtin_types);
 			if (!n)
 				return ERR_PARSE_ERROR;
@@ -4116,18 +4391,30 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 				_set_error("Expected ')' after expression");
 				return ERR_PARSE_ERROR;
 			}
+			if (!is_do) {
+				BlockNode *block = alloc_node<BlockNode>();
+				block->parent_block = p_block;
+				cf->expressions.push_back(n);
+				cf->blocks.push_back(block);
+				p_block->statements.push_back(cf);
 
-			BlockNode *block = alloc_node<BlockNode>();
-			block->parent_block = p_block;
-			cf->expressions.push_back(n);
-			cf->blocks.push_back(block);
-			p_block->statements.push_back(cf);
+				Error err = _parse_block(block, p_builtin_types, true, true, true);
+				if (err)
+					return err;
+			} else {
 
-			Error err = _parse_block(block, p_builtin_types, true, true, true);
-			if (err)
-				return err;
+				cf->expressions.push_back(n);
+				cf->blocks.push_back(do_block);
+				p_block->statements.push_back(cf);
+
+				tk = _get_token();
+				if (tk.type != TK_SEMICOLON) {
+					_set_error("Expected ';'");
+					return ERR_PARSE_ERROR;
+				}
+			}
 		} else if (tk.type == TK_CF_FOR) {
-			//if () {}
+			// for() {}
 			tk = _get_token();
 			if (tk.type != TK_PARENTHESIS_OPEN) {
 				_set_error("Expected '(' after for");
@@ -4228,6 +4515,9 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 			}
 
 			p_block->statements.push_back(flow);
+			if (p_block->block_type == BlockNode::BLOCK_TYPE_CASE || p_block->block_type == BlockNode::BLOCK_TYPE_DEFAULT) {
+				return OK;
+			}
 		} else if (tk.type == TK_CF_DISCARD) {
 
 			//check return type
@@ -4274,9 +4564,13 @@ Error ShaderLanguage::_parse_block(BlockNode *p_block, const Map<StringName, Bui
 			}
 
 			p_block->statements.push_back(flow);
+			if (p_block->block_type == BlockNode::BLOCK_TYPE_CASE || p_block->block_type == BlockNode::BLOCK_TYPE_DEFAULT) {
+				return OK;
+			}
+
 		} else if (tk.type == TK_CF_CONTINUE) {
 
-			if (!p_can_break) {
+			if (!p_can_continue) {
 				//all is good
 				_set_error("Continuing is not allowed here");
 			}
@@ -4431,7 +4725,7 @@ Error ShaderLanguage::_parse_shader(const Map<StringName, FunctionInfo> &p_funct
 				}
 
 				if (!uniform && (type < TYPE_FLOAT || type > TYPE_MAT4)) {
-					_set_error("Invalid type for varying, only float,vec2,vec3,vec4,mat2,mat3,mat4 allowed.");
+					_set_error("Invalid type for varying, only float,vec2,vec3,vec4,mat2,mat3,mat4 or array of these types allowed.");
 					return ERR_PARSE_ERROR;
 				}
 
@@ -4613,13 +4907,36 @@ Error ShaderLanguage::_parse_shader(const Map<StringName, FunctionInfo> &p_funct
 					varying.type = type;
 					varying.precision = precision;
 					varying.interpolation = interpolation;
-					shader->varyings[name] = varying;
 
 					tk = _get_token();
-					if (tk.type != TK_SEMICOLON) {
-						_set_error("Expected ';'");
+					if (tk.type != TK_SEMICOLON && tk.type != TK_BRACKET_OPEN) {
+						_set_error("Expected ';' or '['");
 						return ERR_PARSE_ERROR;
 					}
+
+					if (tk.type == TK_BRACKET_OPEN) {
+						tk = _get_token();
+						if (tk.type == TK_INT_CONSTANT && tk.constant > 0) {
+							varying.array_size = (int)tk.constant;
+
+							tk = _get_token();
+							if (tk.type == TK_BRACKET_CLOSE) {
+								tk = _get_token();
+								if (tk.type != TK_SEMICOLON) {
+									_set_error("Expected ';'");
+									return ERR_PARSE_ERROR;
+								}
+							} else {
+								_set_error("Expected ']'");
+								return ERR_PARSE_ERROR;
+							}
+						} else {
+							_set_error("Expected single integer constant > 0");
+							return ERR_PARSE_ERROR;
+						}
+					}
+
+					shader->varyings[name] = varying;
 				}
 
 			} break;
@@ -4825,9 +5142,12 @@ Error ShaderLanguage::_parse_shader(const Map<StringName, FunctionInfo> &p_funct
 
 					pname = tk.text;
 
-					if (_find_identifier(func_node->body, builtin_types, pname)) {
-						_set_error("Redefinition of '" + String(pname) + "'");
-						return ERR_PARSE_ERROR;
+					ShaderLanguage::IdentifierType itype;
+					if (_find_identifier(func_node->body, builtin_types, pname, (ShaderLanguage::DataType *)0, &itype)) {
+						if (itype != IDENTIFIER_FUNCTION) {
+							_set_error("Redefinition of '" + String(pname) + "'");
+							return ERR_PARSE_ERROR;
+						}
 					}
 					FunctionNode::Argument arg;
 					arg.type = ptype;
@@ -4877,6 +5197,14 @@ Error ShaderLanguage::_parse_shader(const Map<StringName, FunctionInfo> &p_funct
 				if (err)
 					return err;
 
+				if (func_node->return_type != DataType::TYPE_VOID) {
+
+					BlockNode *block = func_node->body;
+					if (_find_last_flow_op_in_block(block, FlowOperation::FLOW_OP_RETURN) != OK) {
+						_set_error("Expected at least one return statement in a non-void function.");
+						return ERR_PARSE_ERROR;
+					}
+				}
 				current_function = StringName();
 			}
 		}
@@ -4885,6 +5213,57 @@ Error ShaderLanguage::_parse_shader(const Map<StringName, FunctionInfo> &p_funct
 	}
 
 	return OK;
+}
+
+Error ShaderLanguage::_find_last_flow_op_in_op(ControlFlowNode *p_flow, FlowOperation p_op) {
+
+	bool found = false;
+
+	for (int i = p_flow->blocks.size() - 1; i >= 0; i--) {
+		if (p_flow->blocks[i]->type == Node::TYPE_BLOCK) {
+			BlockNode *last_block = (BlockNode *)p_flow->blocks[i];
+			if (_find_last_flow_op_in_block(last_block, p_op) == OK) {
+				found = true;
+				break;
+			}
+		}
+	}
+	if (found) {
+		return OK;
+	}
+	return FAILED;
+}
+
+Error ShaderLanguage::_find_last_flow_op_in_block(BlockNode *p_block, FlowOperation p_op) {
+
+	bool found = false;
+
+	for (int i = p_block->statements.size() - 1; i >= 0; i--) {
+
+		if (p_block->statements[i]->type == Node::TYPE_CONTROL_FLOW) {
+			ControlFlowNode *flow = (ControlFlowNode *)p_block->statements[i];
+			if (flow->flow_op == p_op) {
+				found = true;
+				break;
+			} else {
+				if (_find_last_flow_op_in_op(flow, p_op) == OK) {
+					found = true;
+					break;
+				}
+			}
+		} else if (p_block->statements[i]->type == Node::TYPE_BLOCK) {
+			BlockNode *block = (BlockNode *)p_block->statements[i];
+			if (_find_last_flow_op_in_block(block, p_op) == OK) {
+				found = true;
+				break;
+			}
+		}
+	}
+
+	if (found) {
+		return OK;
+	}
+	return FAILED;
 }
 
 // skips over whitespace and /* */ and // comments
@@ -4993,9 +5372,7 @@ Error ShaderLanguage::complete(const String &p_code, const Map<StringName, Funct
 	nodes = NULL;
 
 	shader = alloc_node<ShaderNode>();
-	Error err = _parse_shader(p_functions, p_render_modes, p_shader_types);
-	if (err != OK)
-		ERR_PRINT("Failed to parse shader");
+	_parse_shader(p_functions, p_render_modes, p_shader_types);
 
 	switch (completion_type) {
 
@@ -5042,7 +5419,7 @@ Error ShaderLanguage::complete(const String &p_code, const Map<StringName, Funct
 					if (block->parent_function) {
 						if (comp_ident) {
 							for (int i = 0; i < block->parent_function->arguments.size(); i++) {
-								matches.insert(block->parent_function->arguments[i].name, ScriptCodeCompletionOption::KIND_FUNCTION);
+								matches.insert(block->parent_function->arguments[i].name, ScriptCodeCompletionOption::KIND_VARIABLE);
 							}
 						}
 						skip_function = block->parent_function->name;

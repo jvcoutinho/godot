@@ -99,7 +99,7 @@ class ShaderEditor : public PanelContainer {
 
 	MenuButton *edit_menu;
 	MenuButton *search_menu;
-	MenuButton *bookmarks_menu;
+	PopupMenu *bookmarks_menu;
 	MenuButton *help_menu;
 	PopupMenu *context_menu;
 	uint64_t idle;
@@ -122,7 +122,7 @@ class ShaderEditor : public PanelContainer {
 protected:
 	void _notification(int p_what);
 	static void _bind_methods();
-	void _make_context_menu(bool p_selection);
+	void _make_context_menu(bool p_selection, Vector2 p_position);
 	void _text_edit_gui_input(const Ref<InputEvent> &ev);
 
 	void _update_bookmark_list();

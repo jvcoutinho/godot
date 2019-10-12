@@ -230,31 +230,9 @@ uint32_t godot_icall_GodotSharpExport_GetExportedAssemblyDependencies(MonoString
 	return GodotSharpExport::get_exported_assembly_dependencies(project_dll_name, project_dll_src_path, build_config, custom_lib_dir, dependencies);
 }
 
-float godot_icall_Globals_EditorScale() {
-	return EDSCALE;
-}
-
-MonoObject *godot_icall_Globals_GlobalDef(MonoString *p_setting, MonoObject *p_default_value, MonoBoolean p_restart_if_changed) {
-	String setting = GDMonoMarshal::mono_string_to_godot(p_setting);
-	Variant default_value = GDMonoMarshal::mono_object_to_variant(p_default_value);
-	Variant result = _GLOBAL_DEF(setting, default_value, (bool)p_restart_if_changed);
-	return GDMonoMarshal::variant_to_mono_object(result);
-}
-
-MonoObject *godot_icall_Globals_EditorDef(MonoString *p_setting, MonoObject *p_default_value, MonoBoolean p_restart_if_changed) {
-	String setting = GDMonoMarshal::mono_string_to_godot(p_setting);
-	Variant default_value = GDMonoMarshal::mono_object_to_variant(p_default_value);
-	Variant result = _EDITOR_DEF(setting, default_value, (bool)p_restart_if_changed);
-	return GDMonoMarshal::variant_to_mono_object(result);
-}
-
-MonoString *godot_icall_Globals_TTR(MonoString *p_text) {
-	String text = GDMonoMarshal::mono_string_to_godot(p_text);
-	return GDMonoMarshal::mono_string_from_godot(TTR(text));
-}
-
-MonoString *godot_icall_Internal_UpdateApiAssembliesFromPrebuilt() {
-	String error_str = GDMono::get_singleton()->update_api_assemblies_from_prebuilt();
+MonoString *godot_icall_Internal_UpdateApiAssembliesFromPrebuilt(MonoString *p_config) {
+	String config = GDMonoMarshal::mono_string_to_godot(p_config);
+	String error_str = GDMono::get_singleton()->update_api_assemblies_from_prebuilt(config);
 	return GDMonoMarshal::mono_string_from_godot(error_str);
 }
 
@@ -271,7 +249,7 @@ MonoString *godot_icall_Internal_SimplifyGodotPath(MonoString *p_path) {
 MonoBoolean godot_icall_Internal_IsOsxAppBundleInstalled(MonoString *p_bundle_id) {
 #ifdef OSX_ENABLED
 	String bundle_id = GDMonoMarshal::mono_string_to_godot(p_bundle_id);
-	return (MonoBoolean)osx_is_app_bundle_installed;
+	return (MonoBoolean)osx_is_app_bundle_installed(bundle_id);
 #else
 	(void)p_bundle_id; // UNUSED
 	return (MonoBoolean) false;
@@ -350,6 +328,44 @@ MonoString *godot_icall_Internal_MonoWindowsInstallRoot() {
 #endif
 }
 
+void godot_icall_Internal_EditorRunPlay() {
+	EditorNode::get_singleton()->run_play();
+}
+
+void godot_icall_Internal_EditorRunStop() {
+	EditorNode::get_singleton()->run_stop();
+}
+
+void godot_icall_Internal_ScriptEditorDebugger_ReloadScripts() {
+	ScriptEditorDebugger *sed = ScriptEditor::get_singleton()->get_debugger();
+	if (sed) {
+		sed->reload_scripts();
+	}
+}
+
+float godot_icall_Globals_EditorScale() {
+	return EDSCALE;
+}
+
+MonoObject *godot_icall_Globals_GlobalDef(MonoString *p_setting, MonoObject *p_default_value, MonoBoolean p_restart_if_changed) {
+	String setting = GDMonoMarshal::mono_string_to_godot(p_setting);
+	Variant default_value = GDMonoMarshal::mono_object_to_variant(p_default_value);
+	Variant result = _GLOBAL_DEF(setting, default_value, (bool)p_restart_if_changed);
+	return GDMonoMarshal::variant_to_mono_object(result);
+}
+
+MonoObject *godot_icall_Globals_EditorDef(MonoString *p_setting, MonoObject *p_default_value, MonoBoolean p_restart_if_changed) {
+	String setting = GDMonoMarshal::mono_string_to_godot(p_setting);
+	Variant default_value = GDMonoMarshal::mono_object_to_variant(p_default_value);
+	Variant result = _EDITOR_DEF(setting, default_value, (bool)p_restart_if_changed);
+	return GDMonoMarshal::variant_to_mono_object(result);
+}
+
+MonoString *godot_icall_Globals_TTR(MonoString *p_text) {
+	String text = GDMonoMarshal::mono_string_to_godot(p_text);
+	return GDMonoMarshal::mono_string_from_godot(TTR(text));
+}
+
 MonoString *godot_icall_Utils_OS_GetPlatformName() {
 	String os_name = OS::get_singleton()->get_name();
 	return GDMonoMarshal::mono_string_from_godot(os_name);
@@ -415,6 +431,9 @@ void register_editor_internal_calls() {
 	mono_add_internal_call("GodotTools.Internals.Internal::internal_EditorNodeShowScriptScreen", (void *)godot_icall_Internal_EditorNodeShowScriptScreen);
 	mono_add_internal_call("GodotTools.Internals.Internal::internal_GetScriptsMetadataOrNothing", (void *)godot_icall_Internal_GetScriptsMetadataOrNothing);
 	mono_add_internal_call("GodotTools.Internals.Internal::internal_MonoWindowsInstallRoot", (void *)godot_icall_Internal_MonoWindowsInstallRoot);
+	mono_add_internal_call("GodotTools.Internals.Internal::internal_EditorRunPlay", (void *)godot_icall_Internal_EditorRunPlay);
+	mono_add_internal_call("GodotTools.Internals.Internal::internal_EditorRunStop", (void *)godot_icall_Internal_EditorRunStop);
+	mono_add_internal_call("GodotTools.Internals.Internal::internal_ScriptEditorDebugger_ReloadScripts", (void *)godot_icall_Internal_ScriptEditorDebugger_ReloadScripts);
 
 	// Globals
 	mono_add_internal_call("GodotTools.Internals.Globals::internal_EditorScale", (void *)godot_icall_Globals_EditorScale);

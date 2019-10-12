@@ -266,6 +266,7 @@ void BodySW::set_mode(PhysicsServer::BodyMode p_mode) {
 
 			_inv_mass = mass > 0 ? (1.0 / mass) : 0;
 			_set_static(false);
+			angular_velocity = Vector3();
 		} break;
 	}
 
@@ -793,7 +794,7 @@ BodySW::BodySW() :
 
 	still_time = 0;
 	continuous_cd = false;
-	can_sleep = false;
+	can_sleep = true;
 	fi_callback = NULL;
 }
 

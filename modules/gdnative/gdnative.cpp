@@ -268,8 +268,7 @@ void GDNative::_bind_methods() {
 }
 
 void GDNative::set_library(Ref<GDNativeLibrary> p_library) {
-	ERR_EXPLAIN("Tried to change library of GDNative when it is already set");
-	ERR_FAIL_COND(library.is_valid());
+	ERR_FAIL_COND_MSG(library.is_valid(), "Tried to change library of GDNative when it is already set.");
 	library = p_library;
 }
 
@@ -340,7 +339,7 @@ bool GDNative::initialize() {
 	if (err || !library_init) {
 		OS::get_singleton()->close_dynamic_library(native_handle);
 		native_handle = NULL;
-		ERR_PRINT("Failed to obtain godot_gdnative_init symbol");
+		ERR_PRINTS("Failed to obtain " + library->get_symbol_prefix() + "gdnative_init symbol");
 		return false;
 	}
 

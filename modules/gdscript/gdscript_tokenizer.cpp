@@ -357,8 +357,7 @@ StringName GDScriptTokenizer::get_token_literal(int p_offset) const {
 			}
 		}
 	}
-	ERR_EXPLAIN("Failed to get token literal");
-	ERR_FAIL_V("");
+	ERR_FAIL_V_MSG("", "Failed to get token literal.");
 }
 
 static bool _is_text_char(CharType c) {
@@ -1219,10 +1218,8 @@ Error GDScriptTokenizerBuffer::set_code_buffer(const Vector<uint8_t> &p_buffer) 
 	ERR_FAIL_COND_V(p_buffer.size() < 24 || p_buffer[0] != 'G' || p_buffer[1] != 'D' || p_buffer[2] != 'S' || p_buffer[3] != 'C', ERR_INVALID_DATA);
 
 	int version = decode_uint32(&buf[4]);
-	if (version > BYTECODE_VERSION) {
-		ERR_EXPLAIN("Bytecode is too New! Please use a newer engine version.");
-		ERR_FAIL_V(ERR_INVALID_DATA);
-	}
+	ERR_FAIL_COND_V_MSG(version > BYTECODE_VERSION, ERR_INVALID_DATA, "Bytecode is too recent! Please use a newer engine version.");
+
 	int identifier_count = decode_uint32(&buf[8]);
 	int constant_count = decode_uint32(&buf[12]);
 	int line_count = decode_uint32(&buf[16]);
@@ -1428,7 +1425,7 @@ Vector<uint8_t> GDScriptTokenizerBuffer::parse_code_string(const String &p_code)
 		int len;
 		// Objects cannot be constant, never encode objects
 		Error err = encode_variant(E->get(), NULL, len, false);
-		ERR_FAIL_COND_V(err != OK, Vector<uint8_t>());
+		ERR_FAIL_COND_V_MSG(err != OK, Vector<uint8_t>(), "Error when trying to encode Variant.");
 		int pos = buf.size();
 		buf.resize(pos + len);
 		encode_variant(E->get(), &buf.write[pos], len, false);

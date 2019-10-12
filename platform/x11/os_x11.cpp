@@ -378,6 +378,13 @@ Error OS_X11::initialize(const VideoMode &p_desired, int p_video_driver, int p_a
 		XChangeProperty(x11_display, x11_window, property, property, 32, PropModeReplace, (unsigned char *)&hints, 5);
 	}
 
+	// make PID known to X11
+	{
+		const long pid = this->get_process_id();
+		Atom net_wm_pid = XInternAtom(x11_display, "_NET_WM_PID", False);
+		XChangeProperty(x11_display, x11_window, net_wm_pid, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&pid, 1);
+	}
+
 	// disable resizable window
 	if (!current_videomode.resizable && !current_videomode.fullscreen) {
 		XSizeHints *xsh;
@@ -1518,9 +1525,12 @@ void OS_X11::set_window_maximized(bool p_enabled) {
 
 	XSendEvent(x11_display, DefaultRootWindow(x11_display), False, SubstructureRedirectMask | SubstructureNotifyMask, &xev);
 
-	if (is_window_maximize_allowed()) {
-		while (p_enabled && !is_window_maximized()) {
-			// Wait for effective resizing (so the GLX context is too).
+	if (p_enabled && is_window_maximize_allowed()) {
+		// Wait for effective resizing (so the GLX context is too).
+		// Give up after 0.5s, it's not going to happen on this WM.
+		// https://github.com/godotengine/godot/issues/19978
+		for (int attempt = 0; !is_window_maximized() && attempt < 50; attempt++) {
+			usleep(10000);
 		}
 	}
 
@@ -1556,7 +1566,7 @@ bool OS_X11::is_window_maximize_allowed() {
 		bool found_wm_act_max_horz = false;
 		bool found_wm_act_max_vert = false;
 
-		for (unsigned int i = 0; i < len; i++) {
+		for (uint64_t i = 0; i < len; i++) {
 			if (atoms[i] == wm_act_max_horz)
 				found_wm_act_max_horz = true;
 			if (atoms[i] == wm_act_max_vert)
@@ -1602,7 +1612,7 @@ bool OS_X11::is_window_maximized() const {
 		bool found_wm_max_horz = false;
 		bool found_wm_max_vert = false;
 
-		for (unsigned int i = 0; i < len; i++) {
+		for (uint64_t i = 0; i < len; i++) {
 			if (atoms[i] == wm_max_horz)
 				found_wm_max_horz = true;
 			if (atoms[i] == wm_max_vert)
@@ -1754,7 +1764,11 @@ void OS_X11::handle_key_event(XKeyEvent *p_event, bool p_echo) {
 
 	// XLookupString returns keysyms usable as nice scancodes/
 	char str[256 + 1];
-	XLookupString(xkeyevent, str, 256, &keysym_keycode, NULL);
+	XKeyEvent xkeyevent_no_mod = *xkeyevent;
+	xkeyevent_no_mod.state &= ~ShiftMask;
+	xkeyevent_no_mod.state &= ~ControlMask;
+	XLookupString(xkeyevent, str, 256, &keysym_unicode, NULL);
+	XLookupString(&xkeyevent_no_mod, NULL, 0, &keysym_keycode, NULL);
 
 	// Meanwhile, XLookupString returns keysyms useful for unicode.
 
@@ -1763,8 +1777,6 @@ void OS_X11::handle_key_event(XKeyEvent *p_event, bool p_echo) {
 		xmbstring = (char *)memalloc(sizeof(char) * 8);
 		xmblen = 8;
 	}
-
-	keysym_unicode = keysym_keycode;
 
 	if (xkeyevent->type == KeyPress && xic) {
 
@@ -2983,6 +2995,8 @@ void OS_X11::set_custom_mouse_cursor(const RES &p_cursor, CursorShape p_shape, c
 		CursorShape c = current_cursor;
 		current_cursor = CURSOR_MAX;
 		set_cursor_shape(c);
+
+		cursors_cache.erase(p_shape);
 	}
 }
 
@@ -3015,7 +3029,7 @@ void OS_X11::alert(const String &p_alert, const String &p_title) {
 	String program;
 
 	for (int i = 0; i < path_elems.size(); i++) {
-		for (unsigned int k = 0; k < sizeof(message_programs) / sizeof(char *); k++) {
+		for (uint64_t k = 0; k < sizeof(message_programs) / sizeof(char *); k++) {
 			String tested_path = path_elems[i].plus_file(message_programs[k]);
 
 			if (FileAccess::exists(tested_path)) {

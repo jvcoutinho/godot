@@ -189,7 +189,7 @@ Help(opts.GenerateHelpText(env_base))  # generate help
 
 # add default include paths
 
-env_base.Prepend(CPPPATH=['#', '#editor'])
+env_base.Prepend(CPPPATH=['#'])
 
 # configure ENV for platform
 env_base.platform_exporters = platform_exporters
@@ -483,6 +483,13 @@ if selected_platform in platform_list:
             env.Append(CPPDEFINES=['ADVANCED_GUI_DISABLED'])
     if env['minizip']:
         env.Append(CPPDEFINES=['MINIZIP_ENABLED'])
+
+    editor_module_list = ['regex']
+    for x in editor_module_list:
+        if not env['module_' + x + '_enabled']:
+            if env['tools']:
+                print("Build option 'module_" + x + "_enabled=no' cannot be used with 'tools=yes' (editor), only with 'tools=no' (export template).")
+                sys.exit(255)
 
     if not env['verbose']:
         methods.no_verbose(sys, env)

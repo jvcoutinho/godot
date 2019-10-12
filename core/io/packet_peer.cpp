@@ -101,9 +101,9 @@ Error PacketPeer::put_var(const Variant &p_packet, bool p_full_objects) {
 		return OK;
 
 	uint8_t *buf = (uint8_t *)alloca(len);
-	ERR_FAIL_COND_V(!buf, ERR_OUT_OF_MEMORY);
+	ERR_FAIL_COND_V_MSG(!buf, ERR_OUT_OF_MEMORY, "Out of memory.");
 	err = encode_variant(p_packet, buf, len, p_full_objects || allow_object_decoding);
-	ERR_FAIL_COND_V(err, err);
+	ERR_FAIL_COND_V_MSG(err != OK, err, "Error when trying to encode Variant.");
 
 	return put_packet(buf, len);
 }
@@ -150,7 +150,7 @@ void PacketPeer::_bind_methods() {
 
 void PacketPeerStream::_set_stream_peer(REF p_peer) {
 
-	ERR_FAIL_COND(p_peer.is_null());
+	ERR_FAIL_COND_MSG(p_peer.is_null(), "It's not a reference to a valid Resource object.");
 	set_stream_peer(p_peer);
 }
 
@@ -280,8 +280,7 @@ Ref<StreamPeer> PacketPeerStream::get_stream_peer() const {
 void PacketPeerStream::set_input_buffer_max_size(int p_max_size) {
 
 	//warning may lose packets
-	ERR_EXPLAIN("Buffer in use, resizing would cause loss of data");
-	ERR_FAIL_COND(ring_buffer.data_left());
+	ERR_FAIL_COND_MSG(ring_buffer.data_left(), "Buffer in use, resizing would cause loss of data.");
 	ring_buffer.resize(nearest_shift(p_max_size + 4));
 	input_buffer.resize(next_power_of_2(p_max_size + 4));
 }
